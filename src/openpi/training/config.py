@@ -20,6 +20,7 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.xarm_policy as xarm_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
@@ -89,6 +90,9 @@ class DataConfig:
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
+    # If true, will use the LeRobot dataset subtask to define the prompt.
+    # Requires subtask_index in the dataset and a subtasks.parquet metadata file.
+    prompt_from_subtask: bool = False
 
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
@@ -459,6 +463,61 @@ class LeRobotDROIDDataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotXArmDataConfig(DataConfigFactory):
+    """Config for dual XArm datasets with 3 cameras and 14-dim state/actions."""
+
+    # If true, will convert joint dimensions to deltas with respect to the current state.
+    # Gripper dimensions remain absolute.
+    use_delta_joint_actions: bool = True
+    # Default prompt to inject if not present in the data.
+    default_prompt: str | None = None
+
+    # Repack transforms to map dataset keys to expected format.
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "cam_high": "observation.images.BACK_VIEW",
+                            "cam_left_wrist": "observation.images.WRIST_LEFT",
+                            "cam_right_wrist": "observation.images.WRIST_RIGHT",
+                        },
+                        "state": "observation.state",
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[xarm_policy.XArmInputs()],
+            outputs=[xarm_policy.XArmOutputs()],
+        )
+        if self.use_delta_joint_actions:
+            # Delta for 6 joints, absolute for gripper, repeated for both arms.
+            delta_action_mask = _transforms.make_bool_mask(6, -1, 6, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
         )
 
 
@@ -928,6 +987,19 @@ _CONFIGS = [
             use_delta_joint_actions=False,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
+        num_train_steps=20_000,
+    ),
+    #
+    # Fine-tuning dual XArm configs.
+    #
+    TrainConfig(
+        name="pi05_xarm",
+        model=pi0_config.Pi0Config(pi05=True),
+        data=LeRobotXArmDataConfig(
+            repo_id="your_hf_username/your_xarm_dataset",
+            base_config=DataConfig(prompt_from_subtask=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=20_000,
     ),
     #

@@ -11,6 +11,8 @@ import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
 import numpy as np
 import torch
 
+import pandas as pd
+
 import openpi.models.model as _model
 import openpi.training.config as _config
 from openpi.training.droid_rlds_dataset import DroidRldsDataset
@@ -127,6 +129,21 @@ class FakeDataset(Dataset):
         return self._num_samples
 
 
+def _load_subtasks(repo_id: str) -> dict[int, str]:
+    """Load subtask mapping from subtasks.parquet in the dataset directory."""
+    import pathlib
+
+    subtasks_path = pathlib.Path(repo_id) / "meta" / "subtasks.parquet"
+    if not subtasks_path.exists():
+        raise FileNotFoundError(f"subtasks.parquet not found at {subtasks_path}")
+    df = pd.read_parquet(subtasks_path)
+    subtasks = dict(zip(df.index, df.iloc[:, 0]))
+    logging.info(f"Loaded {len(subtasks)} subtasks from {subtasks_path}:")
+    for idx, text in subtasks.items():
+        logging.info(f"  [{idx}] {text}")
+    return subtasks
+
+
 def create_torch_dataset(
     data_config: _config.DataConfig, action_horizon: int, model_config: _model.BaseModelConfig
 ) -> Dataset:
@@ -147,6 +164,10 @@ def create_torch_dataset(
 
     if data_config.prompt_from_task:
         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
+
+    if data_config.prompt_from_subtask:
+        subtasks = _load_subtasks(repo_id)
+        dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotSubtask(subtasks)])
 
     return dataset
 
