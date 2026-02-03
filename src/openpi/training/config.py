@@ -489,6 +489,7 @@ class LeRobotXArmDataConfig(DataConfigFactory):
                         },
                         "state": "observation.state",
                         "actions": "action",
+                        "prompt": "prompt",
                     }
                 )
             ]
