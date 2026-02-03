@@ -50,7 +50,8 @@ class XArmInputs(transforms.DataTransformFn):
             img = np.asarray(img)
             if np.issubdtype(img.dtype, np.floating):
                 img = (255 * img).astype(np.uint8)
-            if img.ndim == 3 and img.shape[0] in (1, 3):
+            # Convert CHW -> HWC if needed. Skip if already HWC.
+            if img.ndim == 3 and img.shape[0] in (1, 3) and img.shape[2] not in (1, 3):
                 img = einops.rearrange(img, "c h w -> h w c")
             return img
 
