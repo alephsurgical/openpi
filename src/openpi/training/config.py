@@ -997,7 +997,7 @@ _CONFIGS = [
         name="pi05_xarm",
         model=pi0_config.Pi0Config(pi05=True),
         data=LeRobotXArmDataConfig(
-            repo_id="your_hf_username/your_xarm_dataset",
+            repo_id="/home/ubuntu/surgery-automation/dataset/local/pi05-pp",
             base_config=DataConfig(prompt_from_subtask=True),
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
